@@ -1,55 +1,93 @@
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import "./App.css";
 
+const API = "https://project-management-system-bfwc.onrender.com";
+
 function App() {
-  const [tasks, setTasks] = useState([
-    {
-      id: 1,
-      title: "Core Feature Development",
-      priority: "High Priority",
-      status: "Pending",
-    },
-    {
-      id: 2,
-      title: "API Integration V2",
-      priority: "In Progress",
-      status: "Ongoing",
-    },
-    {
-      id: 3,
-      title: "User Acceptance Testing",
-      priority: "Approved/Finished",
-      status: "Completed",
-    },
-  ]);
-
+  const [tasks, setTasks] = useState([]);
   const [newTask, setNewTask] = useState("");
-  const [message, setMessage] = useState("Task status updated successfully!");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  const addTask = () => {
-    if (!newTask.trim()) return;
+  // Load tasks from MongoDB through the backend
+  const fetchTasks = async () => {
+    try {
+      const res = await fetch(`${API}/tasks`);
+      if (!res.ok) throw new Error("Failed to load tasks");
 
-    const task = {
-      id: Date.now(),
-      title: newTask,
-      priority: "High Priority",
-      status: "Pending",
-    };
-
-    setTasks([...tasks, task]);
-    setNewTask("");
-    setMessage("New task added successfully!");
+      const data = await res.json();
+      setTasks(data);
+    } catch (error) {
+      setMessage("Could not connect to server.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const updateTask = (id, status) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === id ? { ...task, status } : task
-      )
-    );
+  useEffect(() => {
+    fetchTasks();
+  }, []);
 
-    setMessage("Task status updated successfully!");
+  // Add task
+  const addTask = async () => {
+    if (!newTask.trim()) return;
+
+    try {
+      const res = await fetch(`${API}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTask.trim() }),
+      });
+
+      if (!res.ok) throw new Error();
+
+      const task = await res.json();
+      setTasks((prev) => [task, ...prev]);
+      setNewTask("");
+      setMessage("New task added successfully!");
+    } catch {
+      setMessage("Failed to add task.");
+    }
+  };
+
+  // Update task status
+  const updateTask = async (id, status) => {
+    try {
+      const res = await fetch(`${API}/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!res.ok) throw new Error();
+
+      const updatedTask = await res.json();
+
+      setTasks((prev) =>
+        prev.map((task) => task._id === id ? updatedTask : task)
+      );
+
+      setMessage("Task status updated successfully!");
+    } catch {
+      setMessage("Failed to update task.");
+    }
+  };
+
+  // Delete / archive task
+  const deleteTask = async (id) => {
+    try {
+      const res = await fetch(`${API}/tasks/${id}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) throw new Error();
+
+      setTasks((prev) => prev.filter((task) => task._id !== id));
+      setMessage("Task archived successfully!");
+    } catch {
+      setMessage("Failed to archive task.");
+    }
   };
 
   const countTasks = (status) =>
@@ -59,20 +97,27 @@ function App() {
     tasks
       .filter((task) => task.status === status)
       .map((task) => (
-        <div className="task-card" key={task.id}>
+        <div className="task-card" key={task._id}>
           <h3>**{task.title}**</h3>
-          <p>Status: {task.priority}</p>
+          <p>Status: {status === "Pending"
+            ? "High Priority"
+            : status === "Ongoing"
+            ? "Coding/In Progress"
+            : "Approved/Finished"}</p>
 
           <div className="task-actions">
             {status === "Pending" && (
               <>
-                <button className="blue" onClick={() => updateTask(task.id, "Ongoing")}>
+                <button className="blue"
+                  onClick={() => updateTask(task._id, "Ongoing")}>
                   Assign Team
                 </button>
-                <button className="blue" onClick={() => updateTask(task.id, "Ongoing")}>
+                <button className="blue"
+                  onClick={() => updateTask(task._id, "Ongoing")}>
                   Draft Specs
                 </button>
-                <button className="red" onClick={() => updateTask(task.id, "Ongoing")}>
+                <button className="red"
+                  onClick={() => updateTask(task._id, "Ongoing")}>
                   Start
                 </button>
               </>
@@ -83,7 +128,8 @@ function App() {
                 <button className="green">Code Review</button>
                 <button className="green">Testing</button>
                 <button className="orange">Blocker</button>
-                <button className="blue" onClick={() => updateTask(task.id, "Completed")}>
+                <button className="blue"
+                  onClick={() => updateTask(task._id, "Completed")}>
                   Complete
                 </button>
               </>
@@ -92,7 +138,8 @@ function App() {
             {status === "Completed" && (
               <>
                 <button className="gray">View Results</button>
-                <button className="gray" onClick={() => setTasks(tasks.filter((t) => t.id !== task.id))}>
+                <button className="gray"
+                  onClick={() => deleteTask(task._id)}>
                   Archive
                 </button>
               </>
@@ -142,22 +189,26 @@ function App() {
         </div>
       </section>
 
-      <section className="task-board">
-        <div className="task-column pending-column">
-          <h2>Pending</h2>
-          {renderTasks("Pending")}
-        </div>
+      {loading ? (
+        <p>Loading tasks...</p>
+      ) : (
+        <section className="task-board">
+          <div className="task-column pending-column">
+            <h2>Pending</h2>
+            {renderTasks("Pending")}
+          </div>
 
-        <div className="task-column ongoing-column">
-          <h2>Ongoing</h2>
-          {renderTasks("Ongoing")}
-        </div>
+          <div className="task-column ongoing-column">
+            <h2>Ongoing</h2>
+            {renderTasks("Ongoing")}
+          </div>
 
-        <div className="task-column completed-column">
-          <h2>Completed</h2>
-          {renderTasks("Completed")}
-        </div>
-      </section>
+          <div className="task-column completed-column">
+            <h2>Completed</h2>
+            {renderTasks("Completed")}
+          </div>
+        </section>
+      )}
 
       <footer>Project Management Dashboard</footer>
     </div>
